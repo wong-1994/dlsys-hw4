@@ -45,6 +45,48 @@ void Fill(AlignedArray* out, scalar_t val) {
 
 
 
+static void CarryDataBetweenCompactAndLoose(
+  std::function<void(std::vector<int32_t>&,int32_t&)> carryFunc, 
+  const std::vector<int32_t>& shape) {
+  std::vector<int32_t> index(shape.size(), 0); // Loose array index where data carrying happens
+  int32_t curDim = index.size() - 1; // dimension cursor for update index
+  int32_t compactCursor = 0; // Compact Array index where data carrying happens
+
+  while (curDim >= 0) {
+    if (curDim == index.size() - 1) {
+      // index is already updated when curDim reach to the the end
+      for (index[curDim] = 0; index[curDim] < shape[curDim]; ++index[curDim]) {
+          carryFunc(index, compactCursor);
+      }
+      --curDim;
+    } else {
+      // curDim in the middle, handle carry and update index
+      ++index[curDim];
+      if (index[curDim] >= shape[curDim]) {
+        // handle carry
+        --curDim;
+      } else {
+        // update index
+        for (int32_t dim = curDim + 1; dim < index.size(); ++dim) {
+          index[dim] = 0;
+        }
+        curDim = index.size() - 1;
+      }
+    }
+  }
+}
+
+static size_t ConvertIndexToPosition(const std::vector<int32_t>& index, 
+                                     const std::vector<int32_t>& strides, 
+                                     size_t offset) {
+  size_t pos = offset;
+  for (size_t dim = 0; dim < index.size(); ++dim) {
+    pos += (strides[dim] * index[dim]);
+  }
+  return pos;    
+} 
+
+
 void Compact(const AlignedArray& a, AlignedArray* out, std::vector<int32_t> shape,
              std::vector<int32_t> strides, size_t offset) {
   /**
@@ -62,7 +104,22 @@ void Compact(const AlignedArray& a, AlignedArray* out, std::vector<int32_t> shap
    *  function will implement here, so we won't repeat this note.)
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  int32_t totSize = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+  if (totSize != out->size) {
+    throw std::invalid_argument("Input shape for compact is invalid.");
+  }
+
+  auto compactCarryFunc = [&a, &out, &strides, &offset, totSize](std::vector<int32_t>& index, int32_t& compactCursor) {
+    if(compactCursor > totSize) {
+      throw std::runtime_error("Over flow in compact carry!");
+    }
+    int32_t looseCursor = ConvertIndexToPosition(index, strides, offset);
+    out->ptr[compactCursor] = a.ptr[looseCursor];
+    ++compactCursor;
+  };
+
+  CarryDataBetweenCompactAndLoose(compactCarryFunc, shape);
+  return;
   /// END SOLUTION
 }
 
@@ -79,7 +136,22 @@ void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<int32_t>
    *   offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  int32_t totSize = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+  if (totSize != a.size) {
+    throw std::invalid_argument("Input shape for EwiseSetitem is invalid.");
+  }
+
+  auto ewiseSetCarryFunc = [&a, &out, &strides, &offset, totSize](std::vector<int32_t>& index, int32_t& compactCursor) {
+    if (compactCursor > totSize) {
+      throw std::runtime_error("Over flow in ewise set item carry!");
+    }
+    int32_t looseCursor = ConvertIndexToPosition(index, strides, offset);
+    out->ptr[looseCursor] = a.ptr[compactCursor];
+    ++compactCursor;
+  };
+
+  CarryDataBetweenCompactAndLoose(ewiseSetCarryFunc, shape);
+  return;
   /// END SOLUTION
 }
 
@@ -100,7 +172,21 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  int32_t totSize = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+  if (totSize != size) {
+    throw std::invalid_argument("Input shape for ScalarSetitem is invalid.");
+  }  
+  auto scalarSetCarryFunc = [val, &out, &strides, &offset, size](std::vector<int32_t>& index, int32_t& compactCursor) {
+    if(compactCursor > size) {
+      throw std::runtime_error("Over flow in scalar set item carry!");
+    }
+    int32_t looseCursor = ConvertIndexToPosition(index, strides, offset);
+    out->ptr[looseCursor] = val;
+    ++compactCursor;
+  };
+
+  CarryDataBetweenCompactAndLoose(scalarSetCarryFunc, shape);
+  return;
   /// END SOLUTION
 }
 
@@ -142,6 +228,97 @@ void ScalarAdd(const AlignedArray& a, scalar_t val, AlignedArray* out) {
  * functions (however you want to do so, as long as the functions match the proper)
  * signatures above.
  */
+ void EwiseMul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = a.ptr[i] * b.ptr[i];
+  }
+}
+
+void ScalarMul(const AlignedArray& a, scalar_t val, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = a.ptr[i] * val;
+  }
+}
+
+
+void EwiseDiv(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = a.ptr[i] / b.ptr[i];
+  }
+}
+
+void ScalarDiv(const AlignedArray& a, scalar_t val, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = a.ptr[i] / val;
+  }
+}
+
+
+void ScalarPower(const AlignedArray& a, scalar_t val, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = std::pow(a.ptr[i], val);
+  }
+}
+
+
+void EwiseMaximum(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = (a.ptr[i] > b.ptr[i] ? a.ptr[i] : b.ptr[i]);
+  }
+}
+
+void ScalarMaximum(const AlignedArray& a, scalar_t val, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = (a.ptr[i] > val ? a.ptr[i] : val);
+  }
+}
+
+
+void EwiseEq(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = (a.ptr[i] == b.ptr[i] ? 1.0 : 0.0);
+  }
+}
+
+void ScalarEq(const AlignedArray& a, scalar_t val, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = (a.ptr[i] == val ? 1.0 : 0.0);
+  }
+}
+
+
+void EwiseGe(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = (a.ptr[i] >= b.ptr[i] ? 1.0 : 0.0);
+  }
+}
+
+void ScalarGe(const AlignedArray& a, scalar_t val, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = (a.ptr[i] >= val ? 1.0 : 0.0);
+  }
+}
+
+
+void EwiseLog(const AlignedArray& a, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = std::log(a.ptr[i]);
+  }
+} 
+
+
+void EwiseExp(const AlignedArray& a, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = std::exp(a.ptr[i]);
+  }
+} 
+
+
+void EwiseTanh(const AlignedArray& a, AlignedArray* out) {
+  for (size_t i = 0; i < a.size; i++) {
+    out->ptr[i] = std::tanh(a.ptr[i]);
+  }
+}
 
 
 void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uint32_t m, uint32_t n,
@@ -160,7 +337,14 @@ void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uin
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  for (size_t i = 0 ; i < m; ++i) {
+    for (size_t k = 0; k < p; ++k) {
+      out->ptr[i * p + k] = 0;
+      for (size_t j = 0; j < n; ++j) {
+        out->ptr[i * p + k] += a.ptr[i * n + j] * b.ptr[j * p + k];
+      }
+    }
+  }
   /// END SOLUTION
 }
 
@@ -190,7 +374,13 @@ inline void AlignedDot(const float* __restrict__ a,
   out = (float*)__builtin_assume_aligned(out, TILE * ELEM_SIZE);
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  for (size_t i = 0; i < TILE; ++i) {
+    for (size_t j = 0; j < TILE; ++j) {
+      for (size_t k = 0; k < TILE; ++k) {
+        out[i * TILE + k] += (a[i * TILE + j] * b[j * TILE + k]);
+      }
+    }
+  }
   /// END SOLUTION
 }
 
@@ -216,7 +406,17 @@ void MatmulTiled(const AlignedArray& a, const AlignedArray& b, AlignedArray* out
    *
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  for (size_t i = 0 ; i < (m/TILE); ++i) {
+    for (size_t k = 0; k < (p/TILE); ++k) {
+      size_t outOffset = i * p * TILE + k * TILE * TILE;
+      std::memset(out->ptr+outOffset, 0, TILE * TILE * ELEM_SIZE);
+      for (size_t j = 0; j < (n/TILE); ++j) {
+        size_t aOffset = i * n * TILE + j * TILE * TILE;
+        size_t bOffset = j * p * TILE + k * TILE * TILE;
+        AlignedDot(a.ptr+aOffset, b.ptr+bOffset, out->ptr+outOffset);
+      }
+    }
+  } 
   /// END SOLUTION
 }
 
@@ -231,7 +431,15 @@ void ReduceMax(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  out->ptr[0] = a.ptr[0];
+  size_t outCursor = 0;
+  for (size_t i = 0; i < a.size; ++i) {
+    out->ptr[outCursor] = std::max(a.ptr[i], out->ptr[outCursor]);
+    if ((i + 1) % reduce_size == 0 && (i + 1) < a.size) {
+      ++outCursor;
+      out->ptr[outCursor] = a.ptr[i + 1];
+    }
+  }
   /// END SOLUTION
 }
 
@@ -246,7 +454,16 @@ void ReduceSum(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  scalar_t sum = 0.0;
+  size_t outCursor = 0;
+  for (size_t i = 0; i < a.size; ++i) {
+    sum += a.ptr[i];
+    if ((i + 1) % reduce_size == 0) {
+      out->ptr[outCursor] = sum;
+      sum = 0;
+      ++outCursor;
+    }
+  }
   /// END SOLUTION
 }
 
