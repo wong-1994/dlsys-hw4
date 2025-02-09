@@ -11,13 +11,48 @@ class ResNet9(ndl.nn.Module):
     def __init__(self, device=None, dtype="float32"):
         super().__init__()
         ### BEGIN YOUR SOLUTION ###
-        raise NotImplementedError() ###
+        self.device = device
+        self.dtype = dtype
+        self.model = ndl.nn.Sequential(
+            self._convBN(3, 16, 7, 4),
+            self._convBN(16, 32, 3, 2),
+            self._resBlock(32),
+            self._convBN(32, 64, 3, 2),
+            self._convBN(64, 128, 3, 2),
+            self._resBlock(128),
+            ndl.nn.Flatten(),
+            ndl.nn.Linear(128, 128, device=device, dtype=dtype),
+            ndl.nn.ReLU(),
+            ndl.nn.Linear(128, 10, device=device, dtype=dtype),
+        )
         ### END YOUR SOLUTION
 
     def forward(self, x):
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        return self.model(x)
         ### END YOUR SOLUTION
+
+    def _convBN(self, in_channels, out_channels, kernel_size, stride):
+        return ndl.nn.Sequential(
+            ndl.nn.Conv(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride,
+                device=self.device, 
+                dtype=self.dtype
+            ),
+            ndl.nn.BatchNorm2d(dim=out_channels, device=self.device, dtype=self.dtype),
+            ndl.nn.ReLU(),
+        )
+
+    def _resBlock(self, channels):
+        return ndl.nn.Residual(
+            ndl.nn.Sequential(
+                self._convBN(channels, channels, 3, 1),
+                self._convBN(channels, channels, 3, 1),
+            )
+        )
 
 
 class LanguageModel(nn.Module):
